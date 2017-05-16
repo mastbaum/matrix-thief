@@ -1,0 +1,164 @@
+<html>
+<script src="jquery-3.2.1.slim.min.js"></script>
+<script src="plotly-latest.min.js"></script>
+<body>
+<img src="num_corr_orig.png" style="display:none"/>
+<canvas id="tgt"></canvas>
+<pre id="pos"></pre>
+<hr>
+<h3>Color Scale</h3>
+<pre style="height: 300px; overflow: scroll; display: inline-block; border: solid 1px black; padding: 5px" id="scale"></pre>
+<div id="plot" style="width: 600; height: 400; display: inline-block;"></div>
+<hr>
+<h3>Grid Scan</h3>
+<pre style="height: 300px; overflow: scroll; display: inline-block; border: solid 1px black; padding: 5px" id="output"></pre>
+<hr>
+<h3>Output</h3>
+<pre style="height: 300px; overflow: scroll; display: inline-block; border: solid 1px black; padding: 5px" id="output2"></pre>
+<div id="map" style="width: 600; height: 600; display: inline-block;"></div>
+<hr>
+<script>
+
+$(function() {
+ var img = $('img');
+ 
+ console.log('Image height: ' + img.height());
+ 
+ var canvas = $('#tgt')[0];
+ canvas.width = img.width();
+ canvas.height = img.height();
+ canvas.getContext('2d').drawImage(img[0], 0, 0, img.width(), img.height());
+ 
+ var ctx = canvas.getContext('2d');
+
+ $('canvas').mousemove(function(e) {
+   var pixel = ctx.getImageData(event.offsetX, event.offsetY, 1, 1).data;
+   $('#pos').html(
+     event.offsetX + ' ' + event.offsetY + ': ' +
+     pixel[0] + ' ' + pixel[1] + ' ' + pixel[2]);
+ });
+
+ // Color scale
+ var scalex = 1900;
+ var yhi = 1.0;
+ var pyhi = 8;
+ var ylo = -0.4;
+ var pylo = 1800;
+ var pymax = 4;
+ var pymin = 1808;
+
+ var tracer = { x: [], y: [], type: 'scatter', name: 'red', line: {color: 'red'} };
+ var traceg = { x: [], y: [], type: 'scatter', name: 'green', line: {color: 'green'} };
+ var traceb = { x: [], y: [], type: 'scatter', name: 'blue', line: {color: 'blue'} };
+
+ //for (var i=987; i>=70; i--) {
+ for (var i=pymin; i>=pymax; i--) {
+   //var val = 0.022 - i * (0.022 - 0.006) / (987 - 70);
+   var val = yhi - i * (yhi - ylo) / (pylo - pyhi);
+   var pixelData1 = canvas.getContext('2d').getImageData(scalex, i-0, 1, 1).data;
+   var pixelData2 = canvas.getContext('2d').getImageData(scalex, i-1, 1, 1).data;
+   var pixelData3 = canvas.getContext('2d').getImageData(scalex, i-2, 1, 1).data;
+
+   var pr = Math.min(pixelData1[0], pixelData2[0], pixelData3[0]);
+   var pg = Math.min(pixelData1[1], pixelData2[1], pixelData3[1]);
+   var pb = Math.min(pixelData1[2], pixelData2[2], pixelData3[2]);
+
+   tracer.x.push(val);
+   tracer.y.push(pr);
+   traceg.x.push(val);
+   traceg.y.push(pg);
+   traceb.x.push(val);
+   traceb.y.push(pb);
+
+   //var pr = Math.round((pixelData1[0] + pixelData2[0] + pixelData3[0]) / 3);
+   //var pg = Math.round((pixelData1[1] + pixelData2[1] + pixelData3[1]) / 3);
+   //var pb = Math.round((pixelData1[2] + pixelData2[2] + pixelData3[2]) / 3);
+
+   //var pixelData = canvas.getContext('2d').getImageData(scalex, i, 1, 1).data;
+   //var pr = pixelData[0];
+   //var pg = pixelData[1];
+   //var pb = pixelData[2];
+
+   $('#scale').append(
+     '<span style="display: inline-block; width:10px; height:10px; border: solid 1px black; background: rgb(' + pr + ',' + pg + ',' + pb +')"></span> ' +
+     val + ' ' + pr + ' ' + pg + ' ' + pb +
+     '<br>');
+ }
+
+ Plotly.newPlot('plot', [tracer, traceg, traceb]);
+
+ // Grid scan
+ var nbins = 90;
+ var xoffset = 5.0;
+ var yoffset = 10.0;
+ var xstep = 1.0 * (img.width() - (2108-1880) - xoffset) / nbins;
+ var ystep = 1.0 * (img.height() - yoffset) / nbins;
+
+ var mapdata = [{ z: [], type: 'heatmap' }];
+ 
+ for (var i=0; i<nbins; i++) {
+   var xdata = [];
+   for (var j=0; j<nbins; j++) {
+     var x = xoffset + xstep * i;
+     var y = yoffset + ystep * j;
+ 
+     var r2best = 9999.9;
+     var vbest = -1;
+     do {
+       var pixelData = canvas.getContext('2d').getImageData(x, y, 1, 1).data;
+       var pr = pixelData[0];
+       var pg = pixelData[1];
+       var pb = pixelData[2];
+
+
+       // Figure out value
+       r2best = 9999.9;
+       vbest = -1;
+       for (var k=0; k<tracer.x.length; k++) {
+         var v = tracer.x[k];
+         var r2 = Math.sqrt(
+           (tracer.y[k] - pr) * (tracer.y[k] - pr) +
+           (traceg.y[k] - pg) * (traceg.y[k] - pg) +
+           (traceb.y[k] - pb) * (traceb.y[k] - pb));
+
+         var bad = (
+           ((j == 19 || j == 30 || j == 49 || j == 60 || j == 80) ||
+            (i == 10 || i == 29 || i == 40 || i == 59 || i == 80)) &&
+           Math.sqrt((tracer.y[k] - 255) * (tracer.y[k] - 255) +
+                     (traceg.y[k] - 253) * (traceg.y[k] - 253) +
+                     (traceb.y[k] - 56 ) * (traceb.y[k] - 56 )) < 3);
+
+         if (!bad && r2 < r2best) {
+           r2best = r2;
+           vbest = v;
+         }
+       }
+
+       x++;
+     } while (r2best > 1);
+     x--;
+
+     $('#output').append(
+       '<span style="display: inline-block; width:10px; height:10px; border: solid 1px black; background: rgb(' + pr + ',' + pg + ',' + pb +')"></span> ' +
+       x + ' ' + y + ' ' +
+       pixelData[0] + ' ' + pixelData[1] + ' ' + pixelData[2] + ' -> ' + vbest +
+       '<br>');
+
+     $('#output2').append(i + ' ' + (nbins-1-j) + ' ' + vbest + '<br>');
+ 
+     xdata.push(vbest);
+
+     ctx.fillStyle = 'rgba(0,0,0,255)';
+     ctx.fillRect(x, y, 2, 2);
+   }
+   xdata.reverse();
+   mapdata[0].z.push(xdata);
+ }
+
+ Plotly.newPlot('map', mapdata);
+
+});
+
+</script>
+</body>
+</html>
